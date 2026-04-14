@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Task Row (used inside phase)
 struct TaskRow: View {
     @EnvironmentObject var dataStore: DataStore
-    let task: Task
+    let task: MainAppTask
     let phase: Phase
     let project: Project
     @State private var showEdit   = false
@@ -154,7 +154,7 @@ struct AddTaskView: View {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
             error = "Task name is required."; return
         }
-        let task = Task(id: UUID(),
+        let task = MainAppTask(id: UUID(),
                         name: name.trimmingCharacters(in: .whitespaces),
                         phaseId: phase.id,
                         deadline: hasDeadline ? deadline : nil,
@@ -174,7 +174,7 @@ struct AddTaskView: View {
 struct EditTaskView: View {
     @EnvironmentObject var dataStore: DataStore
     @Environment(\.presentationMode) var dismiss
-    let task: Task
+    let task: MainAppTask
     let phase: Phase
     let project: Project
 
@@ -186,7 +186,7 @@ struct EditTaskView: View {
     @State private var isCompleted: Bool
     @State private var error = ""
 
-    init(task: Task, phase: Phase, project: Project) {
+    init(task: MainAppTask, phase: Phase, project: Project) {
         self.task = task; self.phase = phase; self.project = project
         _name        = State(initialValue: task.name)
         _notes       = State(initialValue: task.notes)
@@ -256,7 +256,7 @@ struct TasksOverviewView: View {
         case all = "All", pending = "Pending", completed = "Done", overdue = "Overdue"
     }
 
-    var filteredTasks: [(task: Task, phase: Phase, project: Project)] {
+    var filteredTasks: [(task: MainAppTask, phase: Phase, project: Project)] {
         var tasks = dataStore.allTasks
         switch filter {
         case .pending:  tasks = tasks.filter { !$0.task.isCompleted }
@@ -318,7 +318,7 @@ struct TasksOverviewView: View {
 
 struct OverviewTaskRow: View {
     @EnvironmentObject var dataStore: DataStore
-    let item: (task: Task, phase: Phase, project: Project)
+    let item: (task: MainAppTask, phase: Phase, project: Project)
 
     var body: some View {
         BTCard(padding: 12) {

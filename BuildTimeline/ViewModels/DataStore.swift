@@ -82,13 +82,13 @@ class DataStore: ObservableObject {
     }
 
     // MARK: – Tasks
-    func addTask(_ t: Task, phaseId: UUID, projectId: UUID) {
+    func addTask(_ t: MainAppTask, phaseId: UUID, projectId: UUID) {
         guard let pi = projects.firstIndex(where: { $0.id == projectId }),
               let hi = projects[pi].phases.firstIndex(where: { $0.id == phaseId }) else { return }
         projects[pi].phases[hi].tasks.append(t); saveAll()
     }
 
-    func updateTask(_ t: Task, phaseId: UUID, projectId: UUID) {
+    func updateTask(_ t: MainAppTask, phaseId: UUID, projectId: UUID) {
         guard let pi = projects.firstIndex(where: { $0.id == projectId }),
               let hi = projects[pi].phases.firstIndex(where: { $0.id == phaseId }),
               let ti = projects[pi].phases[hi].tasks.firstIndex(where: { $0.id == t.id }) else { return }
@@ -97,7 +97,7 @@ class DataStore: ObservableObject {
         recalcProgress(projectId); saveAll()
     }
 
-    func deleteTask(_ t: Task, phaseId: UUID, projectId: UUID) {
+    func deleteTask(_ t: MainAppTask, phaseId: UUID, projectId: UUID) {
         guard let pi = projects.firstIndex(where: { $0.id == projectId }),
               let hi = projects[pi].phases.firstIndex(where: { $0.id == phaseId }) else { return }
         projects[pi].phases[hi].tasks.removeAll { $0.id == t.id }
@@ -204,7 +204,7 @@ class DataStore: ObservableObject {
 
     var unreadNotificationCount: Int { notifications.filter { !$0.isRead }.count }
 
-    var allTasks: [(task: Task, phase: Phase, project: Project)] {
+    var allTasks: [(task: MainAppTask, phase: Phase, project: Project)] {
         projects.flatMap { proj in
             proj.phases.flatMap { ph in
                 ph.tasks.map { (task: $0, phase: ph, project: proj) }
@@ -239,22 +239,22 @@ class DataStore: ObservableObject {
         let wallsId = UUID()
         let roofId  = UUID()
 
-        let tasks1: [Task] = [
-            Task(id: UUID(), name: "Land survey", phaseId: foundId,
+        let tasks1: [MainAppTask] = [
+            MainAppTask(id: UUID(), name: "Land survey", phaseId: foundId,
                  deadline: Date().addingTimeInterval(-86400*4), isCompleted: true,
                  priority: .high, notes: "Complete before digging", createdAt: Date().addingTimeInterval(-86400*14)),
-            Task(id: UUID(), name: "Excavation", phaseId: foundId,
+            MainAppTask(id: UUID(), name: "Excavation", phaseId: foundId,
                  deadline: Date().addingTimeInterval(-86400*2), isCompleted: true,
                  priority: .high, notes: "", createdAt: Date().addingTimeInterval(-86400*12)),
-            Task(id: UUID(), name: "Pour concrete foundation", phaseId: foundId,
+            MainAppTask(id: UUID(), name: "Pour concrete foundation", phaseId: foundId,
                  deadline: Date().addingTimeInterval(86400*3), isCompleted: false,
                  priority: .high, notes: "Use C30 grade concrete", createdAt: Date().addingTimeInterval(-86400*7)),
         ]
-        let tasks2: [Task] = [
-            Task(id: UUID(), name: "Build exterior walls", phaseId: wallsId,
+        let tasks2: [MainAppTask] = [
+            MainAppTask(id: UUID(), name: "Build exterior walls", phaseId: wallsId,
                  deadline: Date().addingTimeInterval(86400*20), isCompleted: false,
                  priority: .high, notes: "", createdAt: Date()),
-            Task(id: UUID(), name: "Install window frames", phaseId: wallsId,
+            MainAppTask(id: UUID(), name: "Install window frames", phaseId: wallsId,
                  deadline: Date().addingTimeInterval(86400*28), isCompleted: false,
                  priority: .medium, notes: "", createdAt: Date()),
         ]
@@ -340,5 +340,125 @@ class DataStore: ObservableObject {
         ]
 
         saveAll()
+    }
+}
+
+import Foundation
+import Combine
+
+@MainActor
+final class BuildTimelineApplication: ObservableObject, Observer {
+    
+    @Published var showPermissionPrompt = false
+    @Published var showOfflineView = false
+    @Published var navigateToMain = false
+    @Published var navigateToWeb = false
+    
+    private let observable: Observable
+    private let coordinator: ObserverCoordinator
+    private var timeoutTask: Task<Void, Never>?
+    
+    init(
+        storage: StorageService,
+        validation: ValidationService,
+        network: NetworkService,
+        notification: NotificationService
+    ) {
+        self.observable = Observable()
+        self.coordinator = ObserverCoordinator(
+            observable: observable,
+            storage: storage,
+            validation: validation,
+            network: network,
+            notification: notification
+        )
+        
+        // ✅ Subscribe to observable
+        observable.attach(self)
+    }
+    
+    // MARK: - Observer Protocol
+    
+    func update(event: AppEvent) {
+        Task { @MainActor in
+            switch event {
+            case .navigateToMain:
+                navigateToMain = true
+                
+            case .navigateToWeb:
+                showPermissionPrompt = false
+                navigateToWeb = true
+                
+            case .showPermission:
+                showPermissionPrompt = true
+                
+            case .hidePermission:
+                showPermissionPrompt = false
+                
+            case .showOffline:
+                showOfflineView = true
+                
+            case .hideOffline:
+                showOfflineView = false
+                
+            default:
+                break
+            }
+        }
+    }
+    
+    // MARK: - Public API
+    
+    func initialize() {
+        Task {
+            await coordinator.initialize()
+            scheduleTimeout()
+        }
+    }
+    
+    func handleTracking(_ data: [String: Any]) {
+        Task {
+            await coordinator.handleTracking(data)
+        }
+    }
+    
+    func handleNavigation(_ data: [String: Any]) {
+        Task.detached { [coordinator] in
+            coordinator.handleNavigation(data)
+        }
+    }
+    
+    func requestPermission() {
+        Task {
+            await coordinator.requestPermission()
+        }
+    }
+    
+    func deferPermission() {
+        Task.detached { [coordinator] in
+            coordinator.deferPermission()
+        }
+    }
+    
+    func networkStatusChanged(_ isConnected: Bool) {
+        Task.detached { [coordinator] in
+            coordinator.networkStatusChanged(isConnected)
+        }
+    }
+    
+    func timeout() {
+        Task {
+            timeoutTask?.cancel()
+            await coordinator.timeout()
+        }
+    }
+    
+    // MARK: - Private
+    
+    private func scheduleTimeout() {
+        timeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            await timeout()
+        }
     }
 }

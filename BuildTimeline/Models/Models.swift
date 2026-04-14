@@ -28,7 +28,7 @@ struct Phase: Identifiable, Codable, Equatable {
     var description: String
     var startDate: Date?
     var endDate: Date?
-    var tasks: [Task]
+    var tasks: [MainAppTask]
     var materials: [Material]
     var photos: [PhotoItem]
     var isCompleted: Bool
@@ -44,7 +44,7 @@ struct Phase: Identifiable, Codable, Equatable {
 }
 
 // MARK: - Task
-struct Task: Identifiable, Codable, Equatable {
+struct MainAppTask: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var name: String
     var phaseId: UUID
@@ -59,7 +59,7 @@ struct Task: Identifiable, Codable, Equatable {
         return d < Date()
     }
 
-    static func == (lhs: Task, rhs: Task) -> Bool { lhs.id == rhs.id }
+    static func == (lhs: MainAppTask, rhs: MainAppTask) -> Bool { lhs.id == rhs.id }
 }
 
 enum TaskPriority: String, Codable, CaseIterable {
@@ -127,6 +127,90 @@ struct Equipment: Identifiable, Codable, Equatable {
 
     static func == (lhs: Equipment, rhs: Equipment) -> Bool { lhs.id == rhs.id }
 }
+
+protocol Observer: AnyObject {
+    func update(event: AppEvent)
+}
+
+enum AppEvent {
+    case initialized
+    case trackingReceived([String: String])
+    case navigationReceived([String: String])
+    case validationCompleted(Bool)
+    case attributionFetched([String: Any])
+    case endpointFetched(String)
+    case permissionGranted
+    case permissionDenied
+    case permissionDeferred
+    case networkChanged(Bool)
+    case timeout
+    case navigateToMain
+    case navigateToWeb
+    case showPermission
+    case hidePermission
+    case showOffline
+    case hideOffline
+}
+
+final class Observable {
+    private var observers: [Observer] = []
+    
+    func attach(_ observer: Observer) {
+        observers.append(observer)
+    }
+    
+    func detach(_ observer: Observer) {
+        observers.removeAll { $0 === observer }
+    }
+    
+    func notify(event: AppEvent) {
+        observers.forEach { $0.update(event: event) }
+    }
+}
+
+struct AppContext {
+    var tracking: [String: String] = [:]
+    var navigation: [String: String] = [:]
+    var endpoint: String?
+    var mode: String?
+    var isFirstLaunch: Bool = true
+    var permission: PermissionData = .initial
+    var isLocked: Bool = false
+    var metadata: [String: Any] = [:]
+    
+    struct PermissionData {
+        var isGranted: Bool
+        var isDenied: Bool
+        var lastAsked: Date?
+        
+        var canAsk: Bool {
+            guard !isGranted && !isDenied else { return false }
+            if let date = lastAsked {
+                return Date().timeIntervalSince(date) / 86400 >= 3
+            }
+            return true
+        }
+        
+        static var initial: PermissionData {
+            PermissionData(isGranted: false, isDenied: false, lastAsked: nil)
+        }
+    }
+    
+    func isOrganic() -> Bool {
+        tracking["af_status"] == "Organic"
+    }
+    
+    func hasTracking() -> Bool {
+        !tracking.isEmpty
+    }
+}
+
+enum ObserverError: Error {
+    case validationFailed
+    case networkError
+    case timeout
+}
+
 
 enum EquipmentStatus: String, Codable, CaseIterable {
     case available = "Available", inUse = "In Use", maintenance = "Maintenance"
