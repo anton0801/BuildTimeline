@@ -64,27 +64,31 @@ final class ObserverCoordinator {
     
     // MARK: - Validation
     
+    var passed = false
+    
     private func performValidation() async {
         guard context.hasTracking() else {
             observable.notify(event: .validationCompleted(false))
             return
         }
         
-        do {
-            let isValid = try await validation.validate()
-            observable.notify(event: .validationCompleted(isValid))
-            
-            if isValid {
-                // ✅ Validation passed
-                await executeBusinessLogic()
-            } else {
-                // ❌ Validation failed - идём на Main
+        if !passed {
+            do {
+                let isValid = try await validation.validate()
+                observable.notify(event: .validationCompleted(isValid))
+                
+                if isValid {
+                    // ✅ Validation passed
+                    await executeBusinessLogic()
+                } else {
+                    // ❌ Validation failed - идём на Main
+                    observable.notify(event: .navigateToMain)
+                }
+            } catch {
+                print("⏱️ [BuildTimeline] Validation error: \(error)")
+                observable.notify(event: .validationCompleted(false))
                 observable.notify(event: .navigateToMain)
             }
-        } catch {
-            print("⏱️ [BuildTimeline] Validation error: \(error)")
-            observable.notify(event: .validationCompleted(false))
-            observable.notify(event: .navigateToMain)
         }
     }
     
@@ -95,6 +99,8 @@ final class ObserverCoordinator {
             observable.notify(event: .navigateToMain)
             return
         }
+        
+        passed = true
         
         // Check temp_url
         if let temp = UserDefaults.standard.string(forKey: "temp_url"), !temp.isEmpty {
@@ -229,7 +235,9 @@ final class ObserverCoordinator {
     // MARK: - Timeout
     
     func timeout() {
-        guard !context.isLocked else { return }
-        observable.notify(event: .navigateToMain)
+        if !passed {
+            guard !context.isLocked else { return }
+            observable.notify(event: .navigateToMain)
+        }
     }
 }

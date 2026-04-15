@@ -449,7 +449,9 @@ final class BuildTimelineApplication: ObservableObject, Observer {
     func timeout() {
         Task {
             timeoutTask?.cancel()
-            await coordinator.timeout()
+            if !coordinator.passed {
+                await coordinator.timeout()
+            }
         }
     }
     
